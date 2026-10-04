@@ -1,12 +1,27 @@
 import { createClient } from "@supabase/supabase-js";
 import "./styles.css";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
-const configured = Boolean(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && !SUPABASE_URL.includes("tu-proyecto"));
-const supabase = configured
-  ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } })
-  : null;
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const rawPublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+let supabase = null;
+let configured = false;
+let configurationError = "";
+
+try {
+  const url = String(rawSupabaseUrl || "").trim();
+  const key = String(rawPublishableKey || "").trim();
+  if (!url || !key || url.includes("tu-proyecto")) {
+    configurationError = "Faltan las variables VITE_SUPABASE_URL o VITE_SUPABASE_PUBLISHABLE_KEY.";
+  } else {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== "https:") throw new Error("La Project URL debe empezar con https://");
+    supabase = createClient(parsedUrl.href.replace(/\/$/, ""), key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+    configured = true;
+  }
+} catch (error) {
+  console.error("Configuración de Supabase no válida", error);
+  configurationError = "La Project URL o la Publishable key de Supabase tiene un formato incorrecto.";
+}
 
 const app = document.querySelector("#app");
 const modalRoot = document.querySelector("#modal-root");
@@ -460,12 +475,15 @@ async function signOut() { await supabase.auth.signOut(); closeModal(); toast("S
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action], [data-view]");
   if (!button) return;
-  if (button.dataset.action === "close-modal" && event.target !== button && !event.target.closest(".modal")) { closeModal(); return; }
   const action = button.dataset.action;
   const view = button.dataset.view;
+  // El fondo del modal puede cerrarlo, pero sus campos y controles internos no.
+  if (action === "close-modal") {
+    if (button.classList.contains("overlay") && event.target !== button) return;
+    return closeModal();
+  }
   if (view) { if (view === "library" && !requireAuth()) return; state.view = view; renderFeed(); $("#catalog").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   if (!action) return;
-  if (action === "close-modal") return closeModal();
   if (action === "open-auth") return openAuth();
   if (action === "open-upload") return openUpload();
   if (action === "open-profile") return openProfile();
@@ -503,7 +521,7 @@ async function initialize() {
   if (!configured) {
     const setup = $("#setup-notice");
     setup.hidden = false;
-    setup.innerHTML = '<span>MateTube está listo visualmente. Agregá las variables de Supabase para activar cuentas, publicaciones y comunidad.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Abrir Supabase</a>';
+    setup.innerHTML = `<span><b>MateTube necesita revisar la conexión con Supabase.</b><br>${escapeHtml(configurationError || "Agregá las variables de Supabase para activar cuentas, publicaciones y comunidad.")}<br>Usá la Project URL (https://…supabase.co) y la Publishable key, sin comillas.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Abrir Supabase</a>`;
   }
   renderAccount(); renderFeed();
   if (!configured) return;
